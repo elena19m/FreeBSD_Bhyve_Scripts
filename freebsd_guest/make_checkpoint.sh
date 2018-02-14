@@ -1,7 +1,7 @@
 ##
 # Make checkpoint
 #
-if [ $# -lt 2]
+if [ $# -lt 2 ]
 then
 	echo "Usage: sh make_checkpoint <file.ckp> <machine>"
 	exit 1

@@ -6,7 +6,7 @@
 # We suppose that tap interface is tap0 (created using tap.sh script).
 #
 
-if [ $# -lt 3]
+if [ $# -lt 3 ]
 then
 	echo "Usage: sh  make_first_create_command.sh <guest.img> <file.iso> <machine>"
 	exit 1
