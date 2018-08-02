@@ -10,6 +10,8 @@ set_vars() {
     DEF_WORKDIR="${CRTSCRIPT_ABS%/*}"
     WORKDIR="${WORKDIR:-${DEF_WORKDIR}}"
 
+    SCRIPTSDIR="${CRTSCRIPT_ABS%/*}"
+
     DEF_CKPFILE="${WORKDIR}/test.ckp"
     CKPFILE="${CKPFILE:-${DEF_CKPFILE}}"
 
@@ -122,15 +124,15 @@ GUESTIMG() {
 }
 
 checkpoint_vm() {
-    ${WORKDIR}/${GUEST_TYPE}_checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
+    ${SCRIPTSDIR}/${GUEST_TYPE}_checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 restore_vm() {
-    ${WORKDIR}/${GUEST_TYPE}_restore_vm.sh "$(GUESTIMG)" "${CKPFILE}" "${VMNAME}"
+    ${SCRIPTSDIR}/${GUEST_TYPE}_restore_vm.sh "$(GUESTIMG)" "${CKPFILE}" "${VMNAME}"
 }
 
 suspend_vm() {
-    ${WORKDIR}/${GUEST_TYPE}_suspend_vm.sh "${CKPFILE}" "${VMNAME}"
+    ${SCRIPTSDIR}/${GUEST_TYPE}_suspend_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 cp_vm_tmpfs() {
@@ -146,7 +148,7 @@ cp_vm_tmpfs() {
 
 create_vm() {
     truncate -s ${GUESTIMG_SIZE} "${GUESTIMG_DISK}"
-    ${WORKDIR}/${GUEST_TYPE}_create_vm.sh "${GUESTIMG_DISK}" "${ISOFILE}" "${VMNAME}" >/dev/null
+    ${SCRIPTSDIR}/${GUEST_TYPE}_create_vm.sh "${GUESTIMG_DISK}" "${ISOFILE}" "${VMNAME}" >/dev/null
     cp_vm_tmpfs
 }
 
@@ -155,7 +157,7 @@ destroy_vm() {
 }
 
 run_vm() {
-    ${WORKDIR}/${GUEST_TYPE}_run_vm.sh "$(GUESTIMG)" "${VMNAME}"
+    ${SCRIPTSDIR}/${GUEST_TYPE}_run_vm.sh "$(GUESTIMG)" "${VMNAME}"
 }
 
 bad_argument() {
