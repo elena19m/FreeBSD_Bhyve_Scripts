@@ -1,3 +1,5 @@
+#!/bin/sh
+
 ##
 # Firstly, we need to create a virtual machine using vmrun.sh and to install
 # guest OS in <guest.img> virtual file system
@@ -6,10 +8,23 @@
 # We suppose that tap interface is tap0 (created using tap.sh script).
 #
 
+CRTSCRIPT=`readlink -f $0`
+BASEDIR=${CRTSCRIPT%/*}
+
 if [ $# -lt 3 ]
 then
-	echo "Usage: sh  make_first_create_command.sh <guest.img> <file.iso> <machine>"
+	echo "Usage: sh $0 <guest.img> <file.iso> <machine>"
 	exit 1
 fi
 
-sh /usr/share/examples/bhyve/vmrun.sh -c 2 -m 512M -t tap0 -d $1 -i -I $2 $3
+kldload vmm
+${BASEDIR}/tap.sh
+
+sh /usr/share/examples/bhyve/vmrun.sh \
+	-c 2 \
+	-m 512M \
+	-t tap0 \
+	-d $1 \
+	-i \
+	-I $2 \
+	$3
