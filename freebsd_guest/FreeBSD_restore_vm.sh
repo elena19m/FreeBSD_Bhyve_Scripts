@@ -4,7 +4,7 @@
 
 if [ $# -lt 3 ]
 then
-	echo "Usage: sh make_restore_file_ckp.sh <guest.img> <file.ckp> <machine>"
+	echo "Usage: sh $0 <guest.img> <file.ckp> <machine>"
 	exit 1
 fi
 
