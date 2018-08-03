@@ -2,7 +2,6 @@
 
 set -e
 set -u
-set -x
 
 set_vars() {
     CRTSCRIPT="$0"
