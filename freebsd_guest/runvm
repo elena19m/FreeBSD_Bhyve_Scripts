@@ -2,6 +2,7 @@
 
 set -e
 set -u
+set -x
 
 set_vars() {
     CRTSCRIPT="$0"
@@ -19,7 +20,7 @@ set_vars() {
     TMPFSDIR="${TMPFSDIR:-${DEF_TMPFSDIR}}"
 
     if [ "${GUEST_TYPE}" == "Linux" ]; then
-        DEF_ISOFILE="${WORKDIR}/debian-9.5.0-amd64-netinst.iso"
+        DEF_ISOFILE="${WORKDIR}/Fedora-Server-netinst-x86_64-28-1.1.iso"
         DEF_GUESTIMG_DISK="${WORKDIR}/linux_guest.img"
     elif [ "${GUEST_TYPE}" == "FreeBSD" ]; then
         DEF_ISOFILE="${WORKDIR}/FreeBSD-11.2-RELEASE-amd64-bootonly.iso"
