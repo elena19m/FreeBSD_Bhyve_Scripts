@@ -1,59 +1,66 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 set -e
 set -u
 
+OPTSTR="CRSbcdhlmrtu"
+
+# Declare the variable keys here in the order of their dependecies
+# This must be done here, since associative arrays do not guarantee that
+# the keys are iterated in the order they are declared in the script
+VARIABLES=(
+        VMNAME WORKDIR ISOFILE CKPFILE GUESTIMG_DISK TMPFSDIR GUESTIMG_TMP
+        GUESTIMG_SIZE MNTDIR MDNUM
+)
+
+declare -A DEFAULTS
 set_vars() {
     CRTSCRIPT="$0"
     CRTSCRIPT_ABS="`readlink -f ${CRTSCRIPT}`"
-
-    DEF_WORKDIR="${CRTSCRIPT_ABS%/*}"
-    WORKDIR="${WORKDIR:-${DEF_WORKDIR}}"
-
     SCRIPTSDIR="${CRTSCRIPT_ABS%/*}"
 
-    DEF_CKPFILE="${WORKDIR}/test.ckp"
-    CKPFILE="${CKPFILE:-${DEF_CKPFILE}}"
+    # Default values for variables in script-expandable format. Will be evaluated
+    # when assigning the values to the variables
+    DEFAULTS=(
+        [VMNAME]='vmachine'
+        [WORKDIR]='${SCRIPTSDIR}/${GUEST_TYPE}'
+        [ISOFILE]='${WORKDIR}/disk.iso'
+        [CKPFILE]='${WORKDIR}/test.ckp'
+        [GUESTIMG_DISK]='${WORKDIR}/guest.img'
+        [TMPFSDIR]='${SCRIPTSDIR}/tmpfs_dir' # This directory should be common between guests
+        [GUESTIMG_TMP]='${TMPFSDIR}/${DEFAULTS[GUESTIMG_DISK]##*/}'
+        [GUESTIMG_SIZE]='4096M'
+        [MNTDIR]='/mnt'
+        [MDNUM]='50' # big numbers have a small chance to be used # TODO: parse number if possible
+    )
 
-    DEF_TMPFSDIR="${WORKDIR}/tmpfs_dir"
-    TMPFSDIR="${TMPFSDIR:-${DEF_TMPFSDIR}}"
+    for VAR in "${VARIABLES[@]}"; do
+        eval ${VAR}="${!VAR:-${DEFAULTS[${VAR}]}}"
+    done
+}
 
-    if [ "${GUEST_TYPE}" == "Linux" ]; then
-        DEF_ISOFILE="${WORKDIR}/Fedora-Server-netinst-x86_64-28-1.1.iso"
-        DEF_GUESTIMG_DISK="${WORKDIR}/linux_guest.img"
-    elif [ "${GUEST_TYPE}" == "FreeBSD" ]; then
-        DEF_ISOFILE="${WORKDIR}/FreeBSD-11.2-RELEASE-amd64-bootonly.iso"
-        DEF_GUESTIMG_DISK="${WORKDIR}/guest.img"
-    else
-        echo "Unknown guest type ${GUEST_TYPE}" 1>&2
-        exit 2
-    fi
-    ISOFILE="${ISOFILE:-${DEF_ISOFILE}}"
-    GUESTIMG_DISK="${GUESTIMG_DISK:-${DEF_GUESTIMG_DISK}}"
+longest_var_name() {
+    local LEN=0
 
-    DEF_GUESTIMG_TMP="${TMPFSDIR}/${DEF_GUESTIMG_DISK##*/}"
-    GUESTIMG_TMP="${GUESTIMG_TMP:-${DEF_GUESTIMG_TMP}}"
+    for VAR in "${VARIABLES[@]}"; do
+        if [ ${LEN} -lt ${#VAR} ]; then LEN=${#VAR}; fi
+    done
 
-    DEF_GUESTIMG_SIZE="4096M"
-    GUESTIMG_SIZE="${GUESTIMG_SIZE:-${DEF_GUESTIMG_SIZE}}"
-
-    DEF_MNTDIR="/mnt"
-    MNTDIR="${MNTDIR:-${DEF_MNTDIR}}"
-
-    VMNAME="${VMNAME:-vmachine}"
-    MDNUM="50" # big numbers have a small chance to be used # TODO: parse number if possible
+    echo $((${LEN} + 1))
 }
 
 usage() {
+    ALIGN_LEN=$(longest_var_name)
+
     eval 1>&2
     printf -- "$CRTSCRIPT [-CRSbcdhlmrtu]\n"
     printf -- "Perform regular operations on a bhyve virtual machine\n"
     printf -- "If a temp file exists, use it since it is in a tmpfs ramdisk\n"
     printf -- "since the image may get broken. To replace it, simply run \`$CRTSCRIPT -t\`\n"
-    printf -- "If the tmpfs does not exist, create it and copy the image there to keep the disk image fresh\n"
+    printf -- "If the tmpfs does not exist, the script create it and copy the image there to keep the disk image fresh\n"
     printf -- "\n"
     printf -- "At least one parameter must be provided.\n"
-    printf -- "'-l' is a modifier, not a parameter - at least another parameter is required\n"
+    printf -- "'-l' is a modifier - at least another parameter is required\n"
     printf -- "\n"
     printf -- "The following options are available:\n"
     printf -- "-C Create a checkpoint for the virtual machine\n"
@@ -70,7 +77,7 @@ usage() {
     printf -- "\n"
     printf -- "The script uses the following variables:\n"
     printf -- " -- VMNAME:        Name of the virtual machine\n"
-    printf -- " -- WORKDIR:       Root work directory; other filesystem-related variables are set relative to this\n"
+    printf -- " -- WORKDIR:       Root work directory for the guest type\n"
     printf -- " -- ISOFILE:       Name of the guest installation disk\n"
     printf -- " -- CKPFILE:       Name of guest memory checkpoint file\n"
     printf -- " -- GUESTIMG_DISK: Name of the guest image disk file\n"
@@ -80,43 +87,30 @@ usage() {
     printf -- " -- MNTDIR:        Guest image mount target directory\n"
     printf -- "\n"
     printf -- "Default values:\n"
-    printf -- " -> VMNAME:        vmachine\n"
-    printf -- " -> WORKDIR:       The parent directory of this script (${DEF_WORKDIR})\n"
-    printf -- " -> ISOFILE:       \${WORKDIR}/${DEF_ISOFILE##*/} (${DEF_ISOFILE})\n"
-    printf -- " -> CKPFILE:       \${WORKDIR}/test.ckp (${DEF_CKPFILE})\n"
-    printf -- " -> GUESTIMG_DISK: \${WORKDIR}/${DEF_GUESTIMG_DISK##*/} (${DEF_GUESTIMG_DISK})\n"
-    printf -- " -> TMPFSDIR:      \${WORKDIR}/tmpfs_dir (${DEF_TMPFSDIR})\n"
-    printf -- " -> GUESTIMG_TMP:  \${TMPFSDIR}/${DEF_GUESTIMG_TMP##*/} (${DEF_GUESTIMG_TMP})\n"
-    printf -- " -> GUESTIMG_SIZE: ${DEF_GUESTIMG_SIZE}\n"
-    printf -- " -> MNTDIR:        ${DEF_MNTDIR}\n"
-    printf -- "\n"
+    for VAR in "${VARIABLES[@]}"; do
+        printf " -> %-*s %s (%s)\n" ${ALIGN_LEN} "${VAR}:" "${DEFAULTS[${VAR}]}" "${!VAR}"
+    done
     exit $1
 }
 
+GUEST_TYPE="freebsd"
 
-GUEST_TYPE="FreeBSD"
-
-if [ $# -ge 1 ]; then
-    case "$1" in
-        -l*)
-            GUEST_TYPE="Linux"
-            if [ "$1" != "-l" ]; then
-                NEXTARG="-${1#-l}"
-                shift
-                set -- "${NEXTARG}" "$@"
-            else
-                shift
-            fi
-            ;;
+while getopts "${OPTSTR}" opt; do
+    case "${opt}" in
+        l) GUEST_TYPE="linux";;
+        h) usage 0;;
+        *) ;;
     esac
-fi
+done
+# Allow another pass of the arguments later
+OPTIND=1
 
 set_vars
 
-if [ $# -lt 1 ]; then usage 1; fi
-
+if [ $# -lt 1 ] || [ $# -eq 1 -a "$1" == "-l" ]; then usage 1; fi
 
 GUESTIMG() {
+    mkdir -p "${TMPFSDIR}"
     if ! $(mount | grep "`readlink -f ${TMPFSDIR}`" 2>&1 >/dev/null && test -f "${GUESTIMG_TMP}"); then
         cp_vm_tmpfs
     fi
@@ -124,15 +118,15 @@ GUESTIMG() {
 }
 
 checkpoint_vm() {
-    ${SCRIPTSDIR}/${GUEST_TYPE}_checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
+    ${WORKDIR}/checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 restore_vm() {
-    ${SCRIPTSDIR}/${GUEST_TYPE}_restore_vm.sh "$(GUESTIMG)" "${CKPFILE}" "${VMNAME}"
+    ${WORKDIR}/restore_vm.sh "$(GUESTIMG)" "${CKPFILE}" "${VMNAME}"
 }
 
 suspend_vm() {
-    ${SCRIPTSDIR}/${GUEST_TYPE}_suspend_vm.sh "${CKPFILE}" "${VMNAME}"
+    ${WORKDIR}/suspend_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 cp_vm_tmpfs() {
@@ -148,7 +142,7 @@ cp_vm_tmpfs() {
 
 create_vm() {
     truncate -s ${GUESTIMG_SIZE} "${GUESTIMG_DISK}"
-    ${SCRIPTSDIR}/${GUEST_TYPE}_create_vm.sh "${GUESTIMG_DISK}" "${ISOFILE}" "${VMNAME}" >/dev/null
+    ${WORKDIR}/create_vm.sh "${GUESTIMG_DISK}" "${ISOFILE}" "${VMNAME}" >/dev/null
     cp_vm_tmpfs
 }
 
@@ -157,7 +151,7 @@ destroy_vm() {
 }
 
 run_vm() {
-    ${SCRIPTSDIR}/${GUEST_TYPE}_run_vm.sh "$(GUESTIMG)" "${VMNAME}"
+    ${WORKDIR}/run_vm.sh "$(GUESTIMG)" "${VMNAME}"
 }
 
 bad_argument() {
@@ -175,15 +169,15 @@ umount_vm_image() {
     mdconfig -d -u "${MDNUM}"
 }
 
-while getopts "CRSbcdhlmrtu" opt; do
+while getopts "${OPTSTR}" opt; do
     case "${opt}" in
         C) checkpoint_vm;;
         R) restore_vm;;
         S) suspend_vm;;
         c) create_vm;;
         d) destroy_vm;;
-        h) usage 0;;
-        l) bad_argument "Option '-l' must be the first argument";;
+        h) ;;
+        l) ;;
         m) mount_vm_image;;
         r) run_vm;;
         t) cp_vm_tmpfs;;
