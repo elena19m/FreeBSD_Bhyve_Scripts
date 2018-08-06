@@ -3,13 +3,11 @@
 set -e
 set -u
 
-OPTSTR="CRSbcdhlmrtu"
-
 # Declare the variable keys here in the order of their dependecies
 # This must be done here, since associative arrays do not guarantee that
 # the keys are iterated in the order they are declared in the script
 VARIABLES=(
-        VMNAME WORKDIR ISOFILE CKPFILE GUESTIMG_DISK TMPFSDIR GUESTIMG_TMP
+        VMNAME GUEST_TYPE WORKDIR ISOFILE CKPFILE GUESTIMG_DISK TMPFSDIR GUESTIMG_TMP
         GUESTIMG_SIZE MNTDIR MDNUM
 )
 
@@ -23,6 +21,7 @@ set_vars() {
     # when assigning the values to the variables
     DEFAULTS=(
         [VMNAME]='vmachine'
+        [GUEST_TYPE]='${GUEST_TYPE:-freebsd}' # Properly compute defaults depending on guest type
         [WORKDIR]='${SCRIPTSDIR}/${GUEST_TYPE}'
         [ISOFILE]='${WORKDIR}/disk.iso'
         [CKPFILE]='${WORKDIR}/test.ckp'
@@ -50,6 +49,8 @@ longest_var_name() {
 }
 
 usage() {
+    set_vars # Make sure variables are properly set when trying to print
+
     ALIGN_LEN=$(longest_var_name)
 
     eval 1>&2
@@ -59,55 +60,52 @@ usage() {
     printf -- "since the image may get broken. To replace it, simply run \`$CRTSCRIPT -t\`\n"
     printf -- "If the tmpfs does not exist, the script create it and copy the image there to keep the disk image fresh\n"
     printf -- "\n"
-    printf -- "At least one parameter must be provided.\n"
-    printf -- "'-l' is a modifier - at least another parameter is required\n"
+    printf -- "At least one command must be provided.\n"
+    printf -- "'-l' and '-w' are not commands, but the values they set for GUEST_TYPE have precedence\n"
     printf -- "\n"
-    printf -- "The following options are available:\n"
+    printf -- "The following short commands and options are available:\n"
     printf -- "-C Create a checkpoint for the virtual machine\n"
     printf -- "-R Restore the virtual machine from a previous checkpoint\n"
     printf -- "-S Suspend the virtual machine\n"
     printf -- "-c Create a virtual machine named vmachine\n"
     printf -- "-d Destroy the virtual machine\n"
     printf -- "-h Display this help message and exit\n"
-    printf -- "-l use a Linux guest in stead of FreeBSD. Must be the first argument if given\n"
+    printf -- "-l use a Linux guest. Has the same result as setting 'GUEST_TYPE=linux'\n"
     printf -- "-m create a memdisk device for the guest image and mount it over \$MNTDIR\n"
     printf -- "-r Run virtual machine\n"
     printf -- "-t copy virtual machine disk file to tmpfs\n"
     printf -- "-u unmount \$MNTDIR and delete the memdisk device\n"
+    printf -- "-w use a Windows guest. Has the same result as setting 'GUEST_TYPE=windows'\n"
+    printf -- "\n"
+    printf -- "For convenience the following long options are available:\n"
+    printf -- "--print-env        Print currently set variables used by the script. No commands will be executed\n"
+    printf -- "--link-iso=<value> Replace \${ISOFILE} with a symbolic link to <value>\n"
     printf -- "\n"
     printf -- "The script uses the following variables:\n"
-    printf -- " -- VMNAME:        Name of the virtual machine\n"
-    printf -- " -- WORKDIR:       Root work directory for the guest type\n"
-    printf -- " -- ISOFILE:       Name of the guest installation disk\n"
-    printf -- " -- CKPFILE:       Name of guest memory checkpoint file\n"
-    printf -- " -- GUESTIMG_DISK: Name of the guest image disk file\n"
-    printf -- " -- TMPFSDIR:      A directory where the guest image will be copied; a tmpfs will be mounted on top of it\n"
-    printf -- " -- GUESTIMG_TMP:  Name of the temporary copy of the guest disk file\n"
-    printf -- " -- GUESTIMG_SIZE: Size of the guest image file, as used by truncate(1)\n"
-    printf -- " -- MNTDIR:        Guest image mount target directory\n"
+    printf -- " -> VMNAME:        Name of the virtual machine\n"
+    printf -- " -> GUEST_TYPE:    Type of the guest. Ordinarily should be: freebsd, linux or windows\n"
+    printf -- " -> WORKDIR:       Root work directory for the guest type\n"
+    printf -- " -> ISOFILE:       Name of the guest installation disk\n"
+    printf -- " -> CKPFILE:       Name of guest memory checkpoint file\n"
+    printf -- " -> GUESTIMG_DISK: Name of the guest image disk file\n"
+    printf -- " -> TMPFSDIR:      A directory where the guest image will be copied; a tmpfs will be mounted on top of it\n"
+    printf -- " -> GUESTIMG_TMP:  Name of the temporary copy of the guest disk file\n"
+    printf -- " -> GUESTIMG_SIZE: Size of the guest image file, as used by truncate(1)\n"
+    printf -- " -> MNTDIR:        Guest image mount target directory\n"
+    printf -- "\n"
+    printf -- "NOTE: Since the GUEST_TYPE variable is only used to determine a subdirectory, its value can be anything\n"
     printf -- "\n"
     printf -- "Default values:\n"
     for VAR in "${VARIABLES[@]}"; do
-        printf " -> %-*s %s (%s)\n" ${ALIGN_LEN} "${VAR}:" "${DEFAULTS[${VAR}]}" "${!VAR}"
+        case "${DEFAULTS[${VAR}]}" in
+        *'$'*)
+            printf " >> %-*s %s (%s)\n" ${ALIGN_LEN} "${VAR}:" "${DEFAULTS[${VAR}]}" "$(eval echo ${DEFAULTS[${VAR}]})";;
+        *)
+            printf " >> %-*s %s\n" ${ALIGN_LEN} "${VAR}:" "$(eval echo ${DEFAULTS[${VAR}]})";;
+        esac
     done
     exit $1
 }
-
-GUEST_TYPE="freebsd"
-
-while getopts "${OPTSTR}" opt; do
-    case "${opt}" in
-        l) GUEST_TYPE="linux";;
-        h) usage 0;;
-        *) ;;
-    esac
-done
-# Allow another pass of the arguments later
-OPTIND=1
-
-set_vars
-
-if [ $# -lt 1 ] || [ $# -eq 1 -a "$1" == "-l" ]; then usage 1; fi
 
 GUESTIMG() {
     mkdir -p "${TMPFSDIR}"
@@ -154,8 +152,9 @@ run_vm() {
     ${WORKDIR}/run_vm.sh "$(GUESTIMG)" "${VMNAME}"
 }
 
-bad_argument() {
+bad_option() {
     echo "$@" 1>&2
+    echo 1>&2
     exit 3
 }
 
@@ -169,19 +168,78 @@ umount_vm_image() {
     mdconfig -d -u "${MDNUM}"
 }
 
+print_env() {
+    ALIGN_LEN=$(longest_var_name)
+
+    for VAR in "${VARIABLES[@]}"; do
+        printf "%-*s %s\n" ${ALIGN_LEN} "${VAR}:" "${!VAR}"
+    done
+}
+
+link_iso() {
+    ISO="${1}"
+
+    rm -i "${ISOFILE}"
+    if [ -f "${ISOFILE}" ]; then
+        echo "File ${ISOFILE} was not removed. Cannot create link" 1>&2
+        echo 1>&2
+    else
+        ln -s "${ISO}" "${ISOFILE}"
+    fi
+}
+
+COMMANDS=()
+OPTSTR="CRSbcdhlmrtuw-:"
+PRINTENV=0
+
 while getopts "${OPTSTR}" opt; do
     case "${opt}" in
-        C) checkpoint_vm;;
-        R) restore_vm;;
-        S) suspend_vm;;
-        c) create_vm;;
-        d) destroy_vm;;
-        h) ;;
-        l) ;;
-        m) mount_vm_image;;
-        r) run_vm;;
-        t) cp_vm_tmpfs;;
-        u) umount_vm_image;;
-        *) usage 1;;
+    C) COMMANDS+="checkpoint_vm";;
+    R) COMMANDS+="restore_vm";;
+    S) COMMANDS+="suspend_vm";;
+    c) COMMANDS+="create_vm";;
+    d) COMMANDS+="destroy_vm";;
+    h) usage 0;;
+    l) GUEST_TYPE="linux";;
+    m) COMMANDS+="mount_vm_image";;
+    r) COMMANDS+="run_vm";;
+    t) COMMANDS+="cp_vm_tmpfs";;
+    u) COMMANDS+="umount_vm_image";;
+    w) GUEST_TYPE="windows";;
+    -) case "${OPTARG}" in
+        print-env)
+            PRINTENV=1
+            ;;
+        link-iso)
+            VAL="${!OPTIND}"; OPTIND=$((OPTIND+1))
+            link_iso "${VAL}"
+            ;;
+        link-iso=*)
+            VAL="${OPTARG#*=}"
+            link_iso "${VAL}"
+            ;;
+        *)
+            bad_option "Unrecognized option: ${OPTARG}" 1>&2
+            ;;
+        esac
+        ;;
+    *) usage 1;;
     esac
+done
+
+set_vars
+
+if [ ${PRINTENV} -eq 1 ]; then
+    print_env
+    exit 0
+fi
+
+if [ -z "${COMMANDS[@]}" ]; then
+    echo "No commands were specified!" 1>&2
+    echo 1>&2
+    usage 2;
+fi
+
+for COMMAND in "${COMMANDS[@]}"; do
+    eval ${COMMAND}
 done
