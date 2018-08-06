@@ -31,7 +31,7 @@ bhyve \
 	-A \
 	-P \
 	-s 0:0,hostbridge \
-	-s 1:0,lpc \ \
+	-s 1:0,lpc \
 	-s 3:0,virtio-net,tap0 \
 	-s 4:0,virtio-blk,$1 \
 	-l com1,stdio \
