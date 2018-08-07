@@ -123,6 +123,7 @@ checkpoint_vm() {
         echo " + Creating vm ${VMNAME} checkpoint in file ${CKPFILE}"
     fi
     ${WORKDIR}/checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
+    sync
 }
 
 restore_vm() {
