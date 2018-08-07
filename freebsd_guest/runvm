@@ -11,7 +11,9 @@ VARIABLES=(
         GUESTIMG_SIZE MNTDIR MDNUM
 )
 
+VERBOSE=0
 declare -A DEFAULTS
+
 set_vars() {
     CRTSCRIPT="$0"
     CRTSCRIPT_ABS="`readlink -f ${CRTSCRIPT}`"
@@ -75,6 +77,7 @@ usage() {
     printf -- "-r Run virtual machine\n"
     printf -- "-t copy virtual machine disk file to tmpfs\n"
     printf -- "-u unmount \$MNTDIR and delete the memdisk device\n"
+    printf -- "-v be verbose when running commands\n"
     printf -- "-w use a Windows guest. Has the same result as setting 'GUEST_TYPE=windows'\n"
     printf -- "\n"
     printf -- "For convenience the following long options are available:\n"
@@ -116,19 +119,30 @@ GUESTIMG() {
 }
 
 checkpoint_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Creating vm ${VMNAME} checkpoint in file ${CKPFILE}"
+    fi
     ${WORKDIR}/checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 restore_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Restoring vm ${VMNAME} from file ${CKPFILE}"
+    fi
     ${WORKDIR}/restore_vm.sh "$(GUESTIMG)" "${CKPFILE}" "${VMNAME}"
 }
 
 suspend_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Suspending vm ${VMNAME} to file ${CKPFILE}"
+    fi
     ${WORKDIR}/suspend_vm.sh "${CKPFILE}" "${VMNAME}"
 }
 
 cp_vm_tmpfs() {
-    echo "Copying the virtual machine disk to tmpfs..." 1>&2
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Copying vm disk ${GUESTIMG_DISK} to ${GUESTIMG_TMP}"
+    fi
     if ! $(mount | grep "`readlink -f ${TMPFSDIR}`" 2>&1 >/dev/null); then
         mount -t tmpfs tmpfs "${TMPFSDIR}"
     fi
@@ -139,16 +153,25 @@ cp_vm_tmpfs() {
 } 1>&2
 
 create_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Creating vm ${VMNAME} with ${ISOFILE}"
+    fi
     truncate -s ${GUESTIMG_SIZE} "${GUESTIMG_DISK}"
     ${WORKDIR}/create_vm.sh "${GUESTIMG_DISK}" "${ISOFILE}" "${VMNAME}" >/dev/null
     cp_vm_tmpfs
 }
 
 destroy_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Destroying vm ${VMNAME}..."
+    fi
     bhyvectl --destroy --vm="${VMNAME}"
 }
 
 run_vm() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Running vm ${VMNAME}..."
+    fi
     ${WORKDIR}/run_vm.sh "$(GUESTIMG)" "${VMNAME}"
 }
 
@@ -159,11 +182,17 @@ bad_option() {
 }
 
 mount_vm_image() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Mounting /dev/md${MDNUM}s1a over ${MNTDIR}"
+    fi
     mdconfig -u "${MDNUM}" "$(GUESTIMG)"
     mount "/dev/md${MDNUM}s1a" "${MNTDIR}"
 }
 
 umount_vm_image() {
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Unmounting ${MNTDIR}"
+    fi
     umount "${MNTDIR}"
     mdconfig -d -u "${MDNUM}"
 }
@@ -171,15 +200,33 @@ umount_vm_image() {
 print_env() {
     ALIGN_LEN=$(longest_var_name)
 
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Print environment"
+    fi
+
     for VAR in "${VARIABLES[@]}"; do
         printf "%-*s %s\n" ${ALIGN_LEN} "${VAR}:" "${!VAR}"
     done
 }
 
 link_iso() {
-    ISO="${1}"
+    ISO="`readlink -f ${1}`"
 
-    rm -i "${ISOFILE}"
+    if [ ${VERBOSE} -eq 1 ]; then
+        echo " + Linking ${ISOFILE} to ${ISO}"
+    fi
+
+    GUESS_GTYPE="${ISO%/*}"
+    GUESS_GTYPE="${GUESS_GTYPE##*/}"
+    if [ "${GUESS_GTYPE}" != "${GUEST_TYPE}" ]; then
+        printf -- "\x1b[1;31mWarning:\x1b[0m You might try to link the an iso of another guest type\n"
+    fi
+
+    if [ -f "${ISOFILE}" ]; then
+        echo "${ISOFILE} already exists!" 1>&2
+        rm -i "${ISOFILE}"
+    fi
+
     if [ -f "${ISOFILE}" ]; then
         echo "File ${ISOFILE} was not removed. Cannot create link" 1>&2
         echo 1>&2
@@ -189,7 +236,7 @@ link_iso() {
 }
 
 COMMANDS=()
-OPTSTR="CRSbcdhlmrtuw-:"
+OPTSTR="CRSbcdhlmrtuvw-:"
 PRINTENV=0
 
 while getopts "${OPTSTR}" opt; do
@@ -205,6 +252,7 @@ while getopts "${OPTSTR}" opt; do
     r) COMMANDS+="run_vm";;
     t) COMMANDS+="cp_vm_tmpfs";;
     u) COMMANDS+="umount_vm_image";;
+    v) VERBOSE=1;;
     w) GUEST_TYPE="windows";;
     -) case "${OPTARG}" in
         print-env)
@@ -212,11 +260,11 @@ while getopts "${OPTSTR}" opt; do
             ;;
         link-iso)
             VAL="${!OPTIND}"; OPTIND=$((OPTIND+1))
-            link_iso "${VAL}"
+            COMMANDS+="link_iso ${VAL}"
             ;;
         link-iso=*)
             VAL="${OPTARG#*=}"
-            link_iso "${VAL}"
+            COMMANDS+="link_iso ${VAL}"
             ;;
         *)
             bad_option "Unrecognized option: ${OPTARG}" 1>&2
