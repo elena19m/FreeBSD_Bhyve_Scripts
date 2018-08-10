@@ -73,6 +73,7 @@ usage() {
     printf -- "-d Destroy the virtual machine\n"
     printf -- "-h Display this help message and exit\n"
     printf -- "-l use a Linux guest. Has the same result as setting 'GUEST_TYPE=linux'\n"
+    printf -- "-L use a Linux guest with GUI. Has the same result as setting 'GUEST_TYPE=linux-gui'\n"
     printf -- "-m create a memdisk device for the guest image and mount it over \$MNTDIR\n"
     printf -- "-r Run virtual machine\n"
     printf -- "-t copy virtual machine disk file to tmpfs\n"
@@ -123,6 +124,8 @@ checkpoint_vm() {
         echo " + Creating vm ${VMNAME} checkpoint in file ${CKPFILE}"
     fi
     ${WORKDIR}/checkpoint_vm.sh "${CKPFILE}" "${VMNAME}"
+
+    sleep 1
     sync
 }
 
@@ -220,7 +223,7 @@ link_iso() {
     GUESS_GTYPE="${ISO%/*}"
     GUESS_GTYPE="${GUESS_GTYPE##*/}"
     if [ "${GUESS_GTYPE}" != "${GUEST_TYPE}" ]; then
-        printf -- "\x1b[1;31mWarning:\x1b[0m You might try to link the an iso of another guest type\n"
+        printf -- "\x1b[1;31mWarning:\x1b[0m You might try to link an iso of another guest type\n"
     fi
 
     if [ -f "${ISOFILE}" ]; then
@@ -237,7 +240,7 @@ link_iso() {
 }
 
 COMMANDS=()
-OPTSTR="CRSbcdhlmrtuvw-:"
+OPTSTR="CRSbcdhlLmrtuvw-:"
 PRINTENV=0
 
 while getopts "${OPTSTR}" opt; do
@@ -249,6 +252,7 @@ while getopts "${OPTSTR}" opt; do
     d) COMMANDS+="destroy_vm";;
     h) usage 0;;
     l) GUEST_TYPE="linux";;
+    L) GUEST_TYPE="linux-gui";;
     m) COMMANDS+="mount_vm_image";;
     r) COMMANDS+="run_vm";;
     t) COMMANDS+="cp_vm_tmpfs";;
@@ -288,6 +292,10 @@ if [ -z "${COMMANDS[@]}" ]; then
     echo 1>&2
     usage 2;
 fi
+
+# These are prerequisites for any guest type
+kldload vmm 2>&1 >/dev/null || true
+"${GUEST_TYPE}"/tap.sh 2>&1 >/dev/null || true
 
 for COMMAND in "${COMMANDS[@]}"; do
     eval ${COMMAND}
