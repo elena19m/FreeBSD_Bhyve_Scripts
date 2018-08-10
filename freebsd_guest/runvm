@@ -295,7 +295,7 @@ fi
 
 # These are prerequisites for any guest type
 kldload vmm 2>&1 >/dev/null || true
-"${GUEST_TYPE}"/tap.sh 2>&1 >/dev/null || true
+"${WORKDIR}"/tap.sh 2>&1 >/dev/null || true
 
 for COMMAND in "${COMMANDS[@]}"; do
     eval ${COMMAND}
