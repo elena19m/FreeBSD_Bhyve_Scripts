@@ -1,5 +1,3 @@
-#!/bin/sh
-
 ##
 # Make checkpoint
 #
@@ -10,4 +8,7 @@ then
 fi
 
 echo "Suspending virtual machine to file: $1"
+
+[ ${VERBOSE} -eq 1 ] && set -x
+
 bhyvectl --suspend $1 --vm=$2

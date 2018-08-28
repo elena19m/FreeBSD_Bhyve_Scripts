@@ -10,4 +10,7 @@ then
 fi
 
 echo "Creating checkpoint: " $1
+
+[ ${VERBOSE} -eq 1 ] && set -x
+
 bhyvectl --checkpoint $1 --vm=$2

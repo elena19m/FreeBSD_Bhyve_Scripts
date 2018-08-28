@@ -8,8 +8,10 @@ set -u
 # the keys are iterated in the order they are declared in the script
 VARIABLES=(
         VMNAME GUEST_TYPE WORKDIR ISOFILE CKPFILE GUESTIMG_DISK TMPFSDIR GUESTIMG_TMP
-        GUESTIMG_SIZE MNTDIR MDNUM
+        GUESTIMG_SIZE MNTDIR MDNUM NETDEV BLKDEV MEMSIZE CPUS
 )
+
+ARGS=("$0" "${@}")
 
 VERBOSE=0
 declare -A DEFAULTS
@@ -33,6 +35,10 @@ set_vars() {
         [GUESTIMG_SIZE]='4096M'
         [MNTDIR]='/mnt'
         [MDNUM]='50' # big numbers have a small chance to be used # TODO: parse number if possible
+        [NETDEV]='virtio-net'
+        [BLKDEV]='virtio-blk'
+        [MEMSIZE]='2048M'
+        [CPUS]='2'
     )
 
     for VAR in "${VARIABLES[@]}"; do
@@ -77,13 +83,9 @@ usage() {
     printf -- "-m create a memdisk device for the guest image and mount it over \$MNTDIR\n"
     printf -- "-r Run virtual machine\n"
     printf -- "-t copy virtual machine disk file to tmpfs\n"
-    printf -- "-u unmount \$MNTDIR and delete the memdisk device\n"
+    printf -- "-u unmount \${MNTDIR} and delete the memdisk device\n"
     printf -- "-v be verbose when running commands\n"
     printf -- "-w use a Windows guest. Has the same result as setting 'GUEST_TYPE=windows'\n"
-    printf -- "\n"
-    printf -- "For convenience the following long options are available:\n"
-    printf -- "--print-env        Print currently set variables used by the script. No commands will be executed\n"
-    printf -- "--link-iso=<value> Replace \${ISOFILE} with a symbolic link to <value>\n"
     printf -- "\n"
     printf -- "The script uses the following variables:\n"
     printf -- " -> VMNAME:        Name of the virtual machine\n"
@@ -96,6 +98,10 @@ usage() {
     printf -- " -> GUESTIMG_TMP:  Name of the temporary copy of the guest disk file\n"
     printf -- " -> GUESTIMG_SIZE: Size of the guest image file, as used by truncate(1)\n"
     printf -- " -> MNTDIR:        Guest image mount target directory\n"
+    printf -- " -> NETDEV:        Network device emulation type for the guest (e1000 or virtio-net)\n"
+    printf -- " -> BLKDEV:        Block device emulation type used by the guest (ahci-hd or virtio-blk)\n"
+    printf -- " -> MEMSIZE:       Guest memory amount\n"
+    printf -- " -> CPUS:          Number of vCPUs\n"
     printf -- "\n"
     printf -- "NOTE: Since the GUEST_TYPE variable is only used to determine a subdirectory, its value can be anything\n"
     printf -- "\n"
@@ -108,6 +114,33 @@ usage() {
             printf " >> %-*s %s\n" ${ALIGN_LEN} "${VAR}:" "$(eval echo ${DEFAULTS[${VAR}]})";;
         esac
     done
+    printf -- "\n"
+    printf -- "For convenience the following long options are available:\n"
+    printf -- "--print-env        Print currently set variables used by the script. No commands will be executed\n"
+    printf -- "--link-iso=<value> Replace \${ISOFILE} with a symbolic link to <value>\n"
+    printf -- "\n"
+    printf -- "[Long options setter arguments]\n"
+    printf -- "--vmname           Set the VMNAME variable\n"
+    printf -- "--guest-type       Set the GUEST_TYPE variable\n"
+    printf -- "--workdir          Set the WORKDIR variable\n"
+    printf -- "--iso              Set the ISOFILE variable\n"
+    printf -- "--ckpfile          Set the CKPFILE variable\n"
+    printf -- "--mntdir           Set the MNTDIR variable\n"
+    printf -- "--guestimg-disk    Set the GUESTIMG_DISK variable\n"
+    printf -- "--tmpfs-dir        Set the TMPFSDIR variable\n"
+    printf -- "--guestimg-tmp     Set the GUESTIMG_TMP variable\n"
+    printf -- "--guestimg-size    Set the GUESTIMG_SIZE variable\n"
+    printf -- "--mntdir           Set the MNTDIR variable\n"
+    printf -- "--mdnum            Set the MDNUM variable\n"
+    printf -- "--netdev           Set the NETDEV variable\n"
+    printf -- "| --e1000          Set the NETDEV variable to e1000\n"
+    printf -- "| --virtio-net     Set the NETDEV variable to virtio-net\n"
+    printf -- "--blkdev           Set the BLKDEV variable\n"
+    printf -- "| --ahci           Set the BLKDEV variable to ahci-hd\n"
+    printf -- "| --virtio-blk     Set the BLKDEV variable to virtio-blk\n"
+    printf -- "--memsize          Set the MEMSIZE variable\n"
+    printf -- "--cpus             Set the CPUS variable\n"
+    printf -- "\n"
     exit $1
 }
 
@@ -239,63 +272,139 @@ link_iso() {
     fi
 }
 
+export_variables() {
+    for VAR in "${VARIABLES[@]}"; do
+        export ${VAR}
+    done
+    export VERBOSE
+}
+
+set_longopt_var() {
+    local VAR="$1"
+
+    case "${OPTARG}" in
+    *=*) eval "${VAR}=${OPTARG#*=}" ;;
+    *)   eval "${VAR}=${ARGS[$OPTIND]}"; OPTIND=$((OPTIND+1)) ;;
+    esac
+}
+
+set_longopt_command() {
+    local CMD="$1"
+
+    case "${OPTARG}" in
+    *=*) eval "COMMANDS+=(\"${CMD} ${OPTARG#*=}\")" ;;
+    *)   eval "COMMANDS+=(\"${CMD} ${ARGS[$OPTIND]}\")"; OPTIND=$((OPTIND+1)) ;;
+    esac
+}
+
 COMMANDS=()
 OPTSTR="CRSbcdhlLmrtuvw-:"
+HELP=0
 PRINTENV=0
 
 while getopts "${OPTSTR}" opt; do
     case "${opt}" in
-    C) COMMANDS+="checkpoint_vm";;
-    R) COMMANDS+="restore_vm";;
-    S) COMMANDS+="suspend_vm";;
-    c) COMMANDS+="create_vm";;
-    d) COMMANDS+="destroy_vm";;
-    h) usage 0;;
+    C) COMMANDS+=("checkpoint_vm");;
+    R) COMMANDS+=("restore_vm");;
+    S) COMMANDS+=("suspend_vm");;
+    c) COMMANDS+=("create_vm");;
+    d) COMMANDS+=("destroy_vm");;
+    h) HELP=1;;
     l) GUEST_TYPE="linux";;
     L) GUEST_TYPE="linux-gui";;
-    m) COMMANDS+="mount_vm_image";;
-    r) COMMANDS+="run_vm";;
-    t) COMMANDS+="cp_vm_tmpfs";;
-    u) COMMANDS+="umount_vm_image";;
+    m) COMMANDS+=("mount_vm_image");;
+    r) COMMANDS+=("run_vm");;
+    t) COMMANDS+=("cp_vm_tmpfs");;
+    u) COMMANDS+=("umount_vm_image");;
     v) VERBOSE=1;;
     w) GUEST_TYPE="windows";;
     -) case "${OPTARG}" in
-        print-env)
-            PRINTENV=1
-            ;;
-        link-iso)
-            VAL="${!OPTIND}"; OPTIND=$((OPTIND+1))
-            COMMANDS+="link_iso ${VAL}"
-            ;;
-        link-iso=*)
-            VAL="${OPTARG#*=}"
-            COMMANDS+="link_iso ${VAL}"
-            ;;
-        *)
-            bad_option "Unrecognized option: ${OPTARG}" 1>&2
-            ;;
-        esac
-        ;;
+       print-env)         PRINTENV=1 ;;
+
+       link-iso)          ;&
+       link-iso=*)        set_longopt_command link_iso ;;
+
+       vmname)            ;&
+       vmname=*)          set_longopt_var VMNAME ;;
+
+       guest-type)        ;&
+       guest-type=*)      set_longopt_var GUEST_TYPE ;;
+
+       workdir)           ;&
+       workdir=*)         set_longopt_var WORKDIR ;;
+
+       iso)               ;&
+       iso=*)             set_longopt_var ISOFILE ;;
+
+       ckpfile)           ;&
+       ckpfile=*)         set_longopt_var CKPFILE ;;
+
+       mntdir)            ;&
+       mntdir=*)          set_longopt_var MNTDIR ;;
+
+       guestimg-disk)     ;&
+       guestimg-disk=*)   set_longopt_var GUESTIMG_DISK ;;
+
+       tmpfs-dir)         ;&
+       tmpfs-dir=*)       set_longopt_var TMPFSDIR ;;
+
+       guestimg-tmp)      ;&
+       guestimg-tmp=*)    set_longopt_var GUESTIMG_TMP ;;
+
+       guestimg-size)     ;&
+       guestimg-size=*)   set_longopt_var GUESTIMG_SIZE ;;
+
+       mntdir)            ;&
+       mntdir=*)          set_longopt_var MNTDIR ;;
+
+       mdnum)             ;&
+       mdnum=*)           set_longopt_var MDNUM ;;
+
+       netdev)            ;&
+       netdev=*)          set_longopt_var NETDEV ;;
+       e1000)             NETDEV='e1000' ;;
+       virtio-net)        NETDEV='virtio-net' ;;
+
+       blkdev)            ;&
+       blkdev=*)          set_longopt_var BLKDEV ;;
+       ahci)              BLKDEV='ahci-hd' ;;
+       virtio-blk)        BLKDEV='virtio-blk' ;;
+
+       memsize)           ;&
+       memsize=*)         set_longopt_var MEMSIZE ;;
+
+       cpus)              ;&
+       cpus=*)            set_longopt_var CPUS ;;
+
+       *)                 bad_option "Unrecognized option: ${OPTARG}" 1>&2 ;;
+       esac
+       ;;
     *) usage 1;;
     esac
 done
 
 set_vars
 
-if [ ${PRINTENV} -eq 1 ]; then
+if [ "${HELP}" -eq 1 ]; then
+    usage 0
+fi
+
+if [ "${PRINTENV}" -eq 1 ]; then
     print_env
     exit 0
 fi
 
-if [ -z "${COMMANDS[@]}" ]; then
+if [ "${#COMMANDS[@]}" -eq 0 ]; then
     echo "No commands were specified!" 1>&2
     echo 1>&2
     usage 2;
 fi
 
 # These are prerequisites for any guest type
-kldload vmm 2>&1 >/dev/null || true
-"${WORKDIR}"/tap.sh 2>&1 >/dev/null || true
+kldload vmm &>/dev/null || true
+#"${WORKDIR}"/tap.sh &>/dev/null || true
+
+export_variables
 
 for COMMAND in "${COMMANDS[@]}"; do
     eval ${COMMAND}

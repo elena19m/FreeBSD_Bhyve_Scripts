@@ -2,26 +2,29 @@
 # Restore virtual machine from checkpoint
 #
 
+set -e
+set -u
+
 if [ $# -lt 3 ]
 then
 	echo "Usage: sh $0 <guest.img> <file.ckp> <machine>"
 	exit 1
 fi
 
-echo "Load VM"
-bhyveload -c stdio -m 512M -d $1 $3
+[ ${VERBOSE} -eq 1 ] && set -x
 
-echo "Restore from checkpoint $2"
 bhyve \
-	-c 2 \
-	-m 512M \
 	-H \
-	-A \
 	-P \
-	-s 0:0,hostbridge \
-	-s 1:0,lpc \
-	-s 3:0,virtio-net,tap0 \
-	-s 4:0,virtio-blk,$1 \
-	-l com1,stdio \
+	-c ${CPUS} \
+	-m ${MEMSIZE} \
+	-s 0:0,hostbridge  \
+	-s 31,lpc  \
+	-l com1,stdio  \
+	-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd  \
+	-s 29,fbuf,tcp=0.0.0.0:5901,w=800,h=600,wait,vga=off  \
+	-s 30,xhci,tablet  \
+	-s 4,${BLKDEV},$1  \
+	-s 5,${NETDEV},tap0  \
 	-r $2 \
 	$3
